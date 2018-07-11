@@ -1,7 +1,8 @@
-"""Conversational UID-RSA
+"""simulation.py
 
+Conversational UID-RSA modeling code.
 
-Example:
+Example usage:
     >>> python -m models.agent --num-agents 2 --num-rounds 500 --num-warm-up 100 --conversation-size 20 --k 2.0 --c 1.2 --alpha 2.0
 
 """

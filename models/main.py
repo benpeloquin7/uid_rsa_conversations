@@ -1,3 +1,12 @@
+"""main.py
+
+Central simulation run file.
+
+Example usage:
+    >>> python -m models.main # TODO (BP) fill this in.
+
+"""
+
 from simulation import *
 
 
