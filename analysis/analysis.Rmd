@@ -1,0 +1,36 @@
+---
+title: "Analysis"
+author: "Ben"
+date: "7/11/2018"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+```
+
+```{r read-in-data}
+fp <- "../output/results.csv"
+df <- read.csv(fp)
+```
+
+```{r}
+df %>% 
+  mutate(id_=paste0(id,"-", sim_number)) %>%
+  ggplot(aes(x=round, y=that_rate, col=as.factor(id_))) +
+    geom_line() +
+    ylim(0, 1) +
+    theme_classic()
+```
+
+```{r}
+df %>% 
+  mutate(id_=paste0(id,"-", sim_number)) %>%
+  ggplot(aes(x=round, y=r, col=as.factor(id_))) +
+    geom_line() +
+    ylim(0, 1) +
+    theme_classic()
+```
+
+
+
