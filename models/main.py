@@ -7,40 +7,31 @@ Example usage:
 
 """
 
+import timeit
+
 from simulation import *
 
 
+def run(id_, seed, num_agents, num_rounds, num_warm_up, conversation_size,
+        variable_conversation_size, single_starting_lexicon, B_probs, t_probs,
+        ks, cs, alphas, out_dir):
+    sim = Simulation(id_, seed, num_agents, num_rounds, num_warm_up,
+                     conversation_size, variable_conversation_size,
+                     single_starting_lexicon, B_probs, t_probs, ks, cs, alphas,
+                     out_dir)
+    return sim.run_simulation()
+
 if __name__ == '__main__':
     import argparse
+    import ConfigParser
+    import json
     import itertools as it
     import multiprocessing
 
-
-    # Initialize agents
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num-agents', type=int, default=10,
-                        help='Number of agents [default: 10].')
-    parser.add_argument('--num-rounds', type=int, default=10,
-                        help='Number of conversations [default: 10]')
-    parser.add_argument('--num-warm-up', type=int, default=100,
-                        help='Data pre conversation [default: 100]')
-    parser.add_argument('--conversation-size', type=int, default=10,
-                        help='Number of conversations [default: 10]')
-    parser.add_argument('--variable-conversation-size',
-                        action='store_true',
-                        help='Make conversations variable in size.')
-    parser.add_argument('--single-starting-lexicon', action='store_true',
-                        help='Each agent starts with same language distribution.')
-    parser.add_argument('--B-prob', type=float, default=0.5,
-                        help='Initial RC probability [default: 0.5]')
-    parser.add_argument('--t-prob', type=float, default=0.5,
-                        help='Initial that-rate [default=: 0.5]')
-    parser.add_argument('--k', type=float, default=1.,
-                        help='Uniformity cost [default=: 1.]')
-    parser.add_argument('--c', type=float, default=1.,
-                        help='Length cost [default=: 1.]')
-    parser.add_argument('--alpha', type=float, default=1.,
-                        help='RSA rationality parameter [default=: 1.]')
+    parser.add_argument('--config-path', type=str,
+                        default='./configs/minimal_config.cfg',
+                        help='Path to config file [default: ./configs/minimal_config.cfg]')
     parser.add_argument('--num-processes', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of cores to use '
@@ -52,37 +43,55 @@ if __name__ == '__main__':
                              "facilitate debugging.")
     args = parser.parse_args()
 
-
-    ks = [1, 1.5, 2]
-    cs = [1, 1.5, 2]
-    alphas = [1, 4, 10]
-    num_agents = [2, 10, 20, 50]
-    num_rounds = [10, 50, 100]
-    single_starting_lexicon = np.repeat(True, len(ks))
-    params = [ks, cs, alphas, num_agents, num_rounds, single_starting_lexicon]
-    # for p in  [ks, cs, alphas, num_agents, num_rounds, single_starting_lexicon]:
-    #     params.extend(p)
+    config = ConfigParser.ConfigParser()
+    config.read(args.config_path)
 
 
-    pool = multiprocessing.Pool(processes=args.num_processes)
-    sim_params = it.product(*params)
+    # TODO (BP) This needs to generalize better from config
+    # Simulation parameters
+    ks = json.loads(config.get(             'AGENT', 'ks'))
+    cs = json.loads(config.get(             'AGENT', 'cs'))
+    alphas = json.loads(config.get(         'AGENT', 'alphas'))
+    num_agents = json.loads(config.get(     'POPULATION', 'num_agents'))
+    num_rounds = json.loads(config.get(          'POPULATION', 'num_rounds'))
+    num_warmup = int(config.get(          'LANGUAGE', 'num_warmup'))
+    single_starting_lexicon = config.get(   'LANGUAGE', 'single_starting_lexicon')
+    conversation_size = int(config.get(    'LANGUAGE', 'conversation_size'))
+    params = [
+        num_agents,
+        num_rounds,
+        [num_warmup],
+        [conversation_size],
+        [False],   # variable_conversation_size
+        [single_starting_lexicon],
+        [[0.5]],   # B_probs
+        [[0.5]],   # t_probs
+        [[2.0]],   # ks (temp)
+        [[2.0]],   # cs (temp)
+        [[1.0]],   # alphas (temp)
+        [args.out_dir]
+    ]
+    sim_params_ = it.product(*params)
+    sim_params = []
+    for i, p in enumerate(sim_params_):
+        data = tuple([i, i] + [el for el in p])
+        sim_params.append(data)
 
 
+    t0 = timeit.default_timer()
+    if not args.debug_mode:
+        logging.info("Running multiprocessing...")
+        pool = multiprocessing.Pool(processes=args.num_processes)
+        results = [pool.apply(run, (a, b, c, d, e, f, g, h, i, j, k, l, m, n))
+                   for a, b, c, d, e, f, g, h, i, j, k, l, m, n in sim_params]
+    else:
+        logging.info("Running in debug mode...")
+        results = []
+        for params in sim_params:
+            results.append(run(*params))
+    logging.info("Runtime:\t{}".format(timeit.default_timer() - t0))
 
-        # n_sims = 10
-        # sim_dfs = []
-        # for i in range(n_sims):
-        #     print("sim {}/{}".format(i, n_sims))
-        #     sim = Simulation(i, i, args.num_agents, args.num_rounds,
-        #                      args.num_warm_up,
-        #                      args.conversation_size,
-        #                      args.variable_conversation_size,
-        #                      args.single_starting_lexicon, [args.B_prob],
-        #                      [args.t_prob],
-        #                      [args.k], [args.c], [args.alpha], args.out_dir)
-        #     data = sim.run_simulation()
-        #     sim_dfs.append(data)
-        #
-        # df = join_simulation_data(sim_dfs)
-        # sim.that_rate_plot(df, "multiple_sims_that_rate.png")
-        # sim.cor_plot(df, "multiple_sims_r.png")
+    check_dir(args.out_dir)
+    df_results = pd.concat(results)
+    df_results.to_csv(os.path.join(args.out_dir, "results.csv"))
+
