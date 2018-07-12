@@ -519,7 +519,7 @@ class Simulation:
                     utterances = self.agents[s].speak(num_utterances)
                 else:
                     utterances = self.agents[s].speak(
-                        args.conversation_size)
+                        self.conversation_size)
                 self.agents[l].listen(utterances)
 
             r, that_rate = get_r_and_that_rate(self.agents)
