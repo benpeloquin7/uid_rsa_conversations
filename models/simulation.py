@@ -124,7 +124,7 @@ def strings():
     return strings
 
 
-def create_corpus(speakers, num_utterances_per_speaker=100):
+def create_corpus(speakers, num_utterances_per_speaker=1000):
     corpus = Counter()
     for speaker in speakers:
         corpus += speaker.speak(num_utterances_per_speaker)
@@ -135,7 +135,7 @@ def generate_alt(x):
     if contains_optional_t(x):
         return re.sub('t', '', x)
     else:
-        return x[0] + 't' + x[1:]
+        return x[:2] + 't' + x[2:]
 
 
 def contains_optional_t(s):
@@ -205,7 +205,8 @@ def record_nextword_prob_and_that_use(lm_no_t, weighted_string_pairs):
         contains_t_pos = 0 if contains_optional_t(x[0][0]) else 1
         contains_t = x[contains_t_pos]
         no_contains_t = x[abs(contains_t_pos - 1)]
-        nextword_prob = lm_no_t[no_contains_t[0][0:1]][no_contains_t[0][1]]
+
+        nextword_prob = lm_no_t[no_contains_t[0][0:2]][no_contains_t[0][2]]
         nextword_probs.append(nextword_prob)
         that_prob = contains_t[1] / (contains_t[1] + no_contains_t[1])
         that_probs.append(that_prob)
@@ -216,8 +217,13 @@ def overall_that_rate(wsp):
     Z = 0.0
     q = 0.0
     for p in wsp:
-        q += p[0][1]
-        Z += p[0][1] + p[1][1]
+        contains_t_pos = 0 if contains_optional_t(p[0][0]) else 1
+        contains_t = p[contains_t_pos]
+        no_contains_t = p[abs(contains_t_pos - 1)]
+        q += contains_t[1]
+        Z += contains_t[1] + no_contains_t[1]
+    if Z == 0:
+        return 0.0
     return q / Z
 
 
@@ -373,7 +379,7 @@ class Agent:
         if total != 0:
             new_weights = (np.array([score1, score2]) / total) * total_weight
         else:
-            new_weights = [np.array([0., 0.])]
+            new_weights = np.array([0., 0.])
         return (utt1, new_weights[0]), (utt2, new_weights[1])
 
     def S1(self):
@@ -397,7 +403,6 @@ class Agent:
     def speak(self, n):
         """Provide new LM for updating"""
         self.n_spoken += 1  # Track speaking occurrences
-
         # RSA re-weighting
         weighted_pairs = self.S1()
         speaking_lex = copy.deepcopy(self.weighted_lexicon)
@@ -415,7 +420,42 @@ class Agent:
         return Counter(discourse)
 
 class Simulation:
-    """Simulation."""
+    """Simulation.
+
+    Parameters
+    ----------
+    id: str
+        Unique identifier for data logging.
+    seed: int
+        random seed.
+    num_agents: int
+        Number of agents involved in simulation.
+    num_rounds: int
+        Number of converation rounds.
+    num_warm_up: int
+        Size of speaker language prior input.
+    conversation_size: int
+        Number of utterances per conversation.
+    variable_conversation_size: bool
+        Vary the conversation size with uniform choice
+        from [1, conversation_size]
+    single_starting_lexicon: bool
+        If true, each agent starts with a different lexicon.
+    B_probs: array of floats
+        List of B_probs (should be same length as num_agents).
+    t_probs: array of floats
+        List of t_prob (should be same length as num_agents).
+    ks: array of floats
+        Uniformity parameters in UID cost.
+    cs: array of floats
+        Length penalty parameter in UID cost.
+    alphas: float
+        RSA rationality parameter.
+    out_dir: str
+        File path to out directory.
+
+
+    """
     def __init__(self, id, seed, num_agents, num_rounds, num_warm_up,
                  conversation_size, variable_conversation_size,
                  single_starting_lexicon, B_probs, t_probs, ks, cs, alphas,
@@ -440,6 +480,7 @@ class Simulation:
         self.init_inpts = self.build_init_inputs()
         self.load_agent_lexicons(self.agents, self.init_inpts, single_starting_lexicon)
         self.sims_run = 0
+        self.single_agent_run = self.num_agents == 1
 
     def set_random_state_seed(self):
         random.seed(self.seed)
@@ -507,19 +548,22 @@ class Simulation:
         data = []
         logging.info("Running {} simulations...".format(self.num_rounds))
         for i in tqdm.tqdm(range(self.num_rounds)):
-            # Speaker / Listener set
-            speakers = set(np.random.choice(range(self.num_agents),
-                                            int(self.num_agents / 2),
-                                            replace=False))
-            listeners = set(range(self.num_agents)) - speakers
+            # Single speaker simulation
+            if self.single_agent_run:
+                speakers = [0]
+                listeners = [0]
+            # Speaker / Listener simulations
+            else:
+                speakers = set(np.random.choice(range(self.num_agents),
+                                                int(self.num_agents / 2),
+                                                replace=False))
+                listeners = set(range(self.num_agents)) - speakers
             for s, l in zip(speakers, listeners):
                 if self.variable_conversation_size:
-                    num_utterances = np.random.randint(1,
-                                                       self.conversation_size)
+                    num_utterances = np.random.randint(1, self.conversation_size)
                     utterances = self.agents[s].speak(num_utterances)
                 else:
-                    utterances = self.agents[s].speak(
-                        self.conversation_size)
+                    utterances = self.agents[s].speak(self.conversation_size)
                 self.agents[l].listen(utterances)
 
             r, that_rate = get_r_and_that_rate(self.agents)
@@ -631,19 +675,71 @@ if __name__ == '__main__':
                              "facilitate debugging.")
     args = parser.parse_args()
 
-    n_sims = 10
-    sim_dfs = []
-    for i in range(n_sims):
-        print("sim {}/{}".format(i, n_sims))
-        sim = Simulation(i, i, args.num_agents, args.num_rounds, args.num_warm_up,
-                   args.conversation_size, args.variable_conversation_size,
-                   args.single_starting_lexicon, [args.B_prob], [args.t_prob],
-                   [args.k], [args.c], [args.alpha], args.out_dir)
-        data = sim.run_simulation()
-        sim_dfs.append(data)
+    B_prob = [0.5]
+    t_prob = [0.5]
+    k = [1.2]
+    c = [1.0]
+    alpha = [10]
+    sim = Simulation(0, 0, 1, args.num_rounds, args.num_warm_up,
+                     args.conversation_size, False, True, B_prob, t_prob,
+                     k, c, alpha, args.out_file)
 
+    data = []
+    pbar = tqdm.tqdm(total=args.num_rounds, position=0)
+    for i in range(args.num_rounds):
+        res = sim.run_simulation()
+        data.append(res)
+        pbar.update()
+    pbar.close()
 
-    df = join_simulation_data(sim_dfs)
-    sim.that_rate_plot(df, "multiple_sims_that_rate.png")
-    sim.cor_plot(df, "multiple_sims_r.png")
+    df_results = pd.concat(data)
+    df_results.to_csv(args.out_file)
+
+    # results = []
+    # n_sims = 2
+    #
+    #
+    # ks = [float(k)/10 for k in range(10, 21)]
+    # cs = [float(k) / 10 for k in range(10, 21)]
+    # total = len(list(it.product(ks, cs))) * n_sims
+    #
+    # pbar = tqdm.tqdm(total=total, position=0)
+    #
+    # id_ = 0
+    # for k in ks:
+    #     k = [k]
+    #     for c in cs:
+    #         c = [c]
+    #         B_prob = [np.random.beta(1, 1)]
+    #         t_prob = [np.random.beta(1, 1)]
+    #         logging.info("B_prob:{}, t_prob:{}".format(B_prob, t_prob))
+    #         sim = Simulation(id_, id_, 1, args.num_rounds, args.num_warm_up,
+    #                          args.conversation_size, False, True, B_prob, t_prob,
+    #                          k, c, [1.], args.out_file)
+    #         id_ += 1
+    #         for i in range(n_sims):
+    #             data = sim.run_simulation()
+    #             results.append(data)
+    #             pbar.update()
+    #
+    #
+    # pbar.close()
+    # df_results = pd.concat(results)
+    # df_results.to_csv(args.out_file)
+
+    # n_sims = 100
+    # sim_dfs = []
+    # for i in range(n_sims):
+    #     print("sim {}/{}".format(i, n_sims))
+    #     sim = Simulation(i, i, args.num_agents, args.num_rounds, args.num_warm_up,
+    #                args.conversation_size, args.variable_conversation_size,
+    #                args.single_starting_lexicon, [args.B_prob], [args.t_prob],
+    #                [args.k], [args.c], [args.alpha], args.out_dir)
+    #     data = sim.run_simulation()
+    #     sim_dfs.append(data)
+    #
+    #
+    # df = join_simulation_data(sim_dfs)
+    # sim.that_rate_plot(df, "multiple_sims_that_rate.png")
+    # sim.cor_plot(df, "multiple_sims_r.png")
 
