@@ -739,40 +739,39 @@ if __name__ == '__main__':
     parser.add_argument('--alpha', type=float, default=1.,
                         help='RSA rationality parameter [default=: 1.]')
     parser.add_argument('--out-file', type=str, default='results.csv')
-    parser.add_argument('--out-dir', type=str, default='./output/')
+    parser.add_argument('--out-dir', type=str, default='./outputs/')
     parser.add_argument('--debug-mode', action='store_true',
                         help="Debug mode flag -- don't run multiprocess to "
                              "facilitate debugging.")
     args = parser.parse_args()
 
-
-
-    ks = [2.0]
-    cs = [2.0]
-    num_runs = 20
-    alpha = [1.0]
-    # ks = [[float(k)/20] for k in range(20, 42)]
-    # cs = [[float(c)/10] for c in range(0, 21)]
+    # ks = [[float(k) / 20] for k in range(20, 42)]
+    # cs = [[float(c) / 10] for c in range(0, 21)]
+    num_runs = 200
     data = []
-    pbar = tqdm.tqdm(total=len(ks)*len(cs)*num_runs, position=0)
+    pbar = tqdm.tqdm(total=num_runs, position=0)
     i = 0
     for run in range(num_runs):
-        # for k in ks:
-        #     for c in cs:
         B_prob = [np.random.beta(1, 1) for _ in range(args.num_agents)]
         t_prob = [np.random.beta(1, 1) for _ in range(args.num_agents)]
+        ks = [np.random.uniform(1, 2) for _ in  range(args.num_agents)]
+        cs = [np.random.uniform(0, 2) for _ in range(args.num_agents)]
+        alphas = [np.random.uniform(1., 6.) for _ in range(args.num_agents)]
 
         sim = Simulation(i, i, args.num_agents, args.num_rounds, args.num_warm_up,
                          args.conversation_size, False, False, B_prob, t_prob,
-                         ks, cs, alpha, args.out_file)
+                         ks, cs, alphas, args.out_file)
         res = sim.run_simulation(args.permute_interlocutor_groups)
         data.append(res)
         i += 1
         pbar.update()
+        if i % 25 == 0:
+            df_results = pd.concat(data)
+            df_results.to_csv(os.path.join(args.out_dir, "agent-{}-run-{}.csv".format(args.num_agents, i)))
     pbar.close()
 
     df_results = pd.concat(data)
-    df_results.to_csv("single-agent-run.csv")
+    df_results.to_csv(os.path.join(args.out_dir, "agent-{}-full.csv".format(args.num_agents)))
 
     # results = []
     # n_sims = 10
