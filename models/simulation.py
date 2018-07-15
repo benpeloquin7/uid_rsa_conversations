@@ -20,7 +20,9 @@ import random
 import re
 import seaborn as sns
 import tqdm
+import warnings
 
+# warnings.filterwarnings("error")  # catch numpy.corrcoef RunTimeWarining
 sns.set_style('whitegrid')
 logging.getLogger().setLevel(logging.INFO)
 
@@ -96,8 +98,10 @@ def initial_weight_strings(B_prob=0.5, t_prob=0.5):
     # RC
     rc_weights = np.random.dirichlet([1.0] * len(rc_pairs))
     for (rc_pair, w) in zip(rc_pairs, rc_weights):
-        (s1, _), (s2, _) = rc_pair
-        utterances.extend([s1, s2])
+        contains_t_pos = 0 if contains_optional_t(rc_pair[0][0]) else 1
+        contains_t = rc_pair[contains_t_pos][0]
+        no_contains_t = rc_pair[abs(contains_t_pos - 1)][0]
+        utterances.extend([contains_t, no_contains_t])
         weights.extend([t_prob * B_prob * w, (1 - t_prob) * B_prob * w])
 
     # Checks
@@ -205,10 +209,9 @@ def record_nextword_prob_and_that_use(lm_no_t, weighted_string_pairs):
         contains_t_pos = 0 if contains_optional_t(x[0][0]) else 1
         contains_t = x[contains_t_pos]
         no_contains_t = x[abs(contains_t_pos - 1)]
-
         nextword_prob = lm_no_t[no_contains_t[0][0:2]][no_contains_t[0][2]]
         nextword_probs.append(nextword_prob)
-        that_prob = contains_t[1] / (contains_t[1] + no_contains_t[1])
+        that_prob = float(contains_t[1]) / (contains_t[1] + no_contains_t[1])
         that_probs.append(that_prob)
     return (nextword_probs, that_probs)
 
@@ -224,17 +227,50 @@ def overall_that_rate(wsp):
         Z += contains_t[1] + no_contains_t[1]
     if Z == 0:
         return 0.0
-    return q / Z
+    return float(q) / Z
 
 
-def get_r_and_that_rate(agents):
-    corpus = create_corpus(agents)
+def get_r_and_that_rate(corpus):
     rc_pairs, _ = partition_RC_no_RC(corpus)
     corpus_lm_no_t = LM().build_lm_ignoring_that(corpus)
     next_probs = record_nextword_prob_and_that_use(corpus_lm_no_t, rc_pairs)
     that_rate = overall_that_rate(rc_pairs)
+    # try:
     r = np.corrcoef(next_probs[0], next_probs[1])[0, 1]
+    # except:
+    #     import pdb; pdb.set_trace();
     return r, that_rate,
+
+
+def get_r_and_that_rates(agents):
+    # Get individual agent data
+    data = []
+    for agent in agents:
+        corpus = create_corpus([agent])
+        r, that_rate = get_r_and_that_rate(corpus)
+        data.append({
+            "id": agent.id,
+            "B_prob": agent.B_prob,
+            "t_prob": agent.t_prob,
+            "k": agent.k,
+            "c": agent.c,
+            "alpha": agent.alpha,
+            "that_rate": that_rate,
+            "r": r })
+
+    # Get Population data
+    corpus = create_corpus(agents)
+    r, that_rate = get_r_and_that_rate(corpus)
+    data.append({
+        "id": "pop",
+        "B_prob": None,
+        "t_prob": None,
+        "k": None,
+        "c": None,
+        "alpha": None,
+        "that_rate": that_rate,
+        "r": r })
+    return data
 
 
 def create_initial_input(B_prob, t_prob, n):
@@ -257,9 +293,15 @@ class LM:
     def build_lm(self, c):
         """Initialize a language model with counter c.
 
+        Parameters
+        ----------
         c: Counter
             Counter of utterance occurances.
 
+        Returns
+        -------
+        collections.Counter
+            Language model.
 
         """
         events = {}
@@ -270,14 +312,14 @@ class LM:
                 if context not in events:
                     events[context] = Counter()
                 events[context][event] += w
-            for context in events:
-                z = float(sum(events[context].values()))
-                for event in events[context].keys():
-                    if z == 0.0:
-                        events[context][event] = 0.0
-                    else:
-                        events[context][event] = float(
-                            events[context][event]) / z
+        for context in events:
+            z = float(sum(events[context].values()))
+            for event in events[context].keys():
+                if z == 0.0:
+                    events[context][event] = 0.0
+                else:
+                    events[context][event] = float(
+                        events[context][event]) / z
         return events
 
     def learn_lm(self, c):
@@ -285,8 +327,17 @@ class LM:
         return self
 
     def build_lm_ignoring_that(self, c):
-        """
+        """Initialize a language model with counter c. Ignore optional that (t)
 
+        Parameters
+        ----------
+        c: Counter
+            Counter of utterance occurances.
+
+        Returns
+        -------
+        collections.Counter
+            Language model.
 
         """
         # Remove optionals
@@ -304,7 +355,7 @@ class LM:
         # noRCs = set(c.keys()) - set(RCs)
         # d = [(utt, weight) for (utt, weight) in c.items() if utt in noRCs]
         no_Rcs.extend(no_t_strs)
-        new_c = {utt: cnt for utt, cnt in no_Rcs}
+        new_c = {utt: float(cnt) for utt, cnt in no_Rcs}
         lm = self.build_lm(new_c)
         return lm
 
@@ -321,10 +372,12 @@ class LM:
 
 class Agent:
     """Speaker/Listener agents."""
-    def __init__(self, id, k, c, alpha=1):
+    def __init__(self, id, k, c, B_prob, t_prob, alpha=1):
         self.id = id
         self.k = k
         self.c = c
+        self.B_prob = B_prob
+        self.t_prob = t_prob
         self.alpha = alpha
         self.iter = 0  # track conversations
         self.weighted_lexicon = Counter()  # {str, cnts}
@@ -344,7 +397,7 @@ class Agent:
 
         """
         self.n_listen += 1
-        self.weighted_lexicon += inpts
+        self.weighted_lexicon += inpts  # TODO (BP): replace here or +=
         self.lm = LM().build_lm(self.weighted_lexicon)
         self.lm_no_t = LM().build_lm_ignoring_that(self.weighted_lexicon)
         return self
@@ -362,6 +415,7 @@ class Agent:
                 return float('inf')
             else:
                 result += (-math.log(p)) ** k
+
         return result
 
     def rsa_score(self, utt):
@@ -409,8 +463,8 @@ class Agent:
         for (
                 (alt1_utt, alt1_weight),
                 (alt2_utt, alt2_weight)) in weighted_pairs:
-            speaking_lex[alt1_utt] = alt1_weight
-            speaking_lex[alt2_utt] = alt2_weight
+            speaking_lex[alt1_utt] = alt1_weight  # add here or reset?
+            speaking_lex[alt2_utt] = alt2_weight  # add here or reset?
 
         utterances = list(speaking_lex.keys())
         cnts = np.array(list(speaking_lex.values())).astype(float)
@@ -494,24 +548,24 @@ class Simulation:
             self.cs = np.repeat(self.cs, self.num_agents)
         if len(self.alphas) == 1:
             self.alphas = np.repeat(self.alphas, self.num_agents)
+        if len(self.B_probs) == 1:
+            self.B_probs = np.repeat(self.B_probs, self.num_agents)
+        if len(self.t_probs) == 1:
+            self.t_probs = np.repeat(self.t_probs, self.num_agents)
         if not len({self.num_agents,
                     len(self.ks), len(self.cs), len(self.alphas)}) == 1:
             raise SimulationException("Mismatch in ks, cs or alphas size"
                                       " should be: {}".format(self.num_agents))
 
         agents = []
-        for i, k, c, alpha in zip(range(self.num_agents), self.ks, self.cs,
-                                  self.alphas):
-            agents.append(Agent(str(i), k, c, alpha))
+        for i, k, c, B, t, alpha in zip(range(self.num_agents), self.ks, self.cs,
+                                  self.B_probs, self.t_probs, self.alphas):
+            agents.append(Agent(str(i), k, c, B, t, alpha))
 
         return agents
 
     def build_init_inputs(self):
         """Create inputs for agents"""
-        if len(self.B_probs) == 1:
-            self.B_probs = np.repeat(self.B_probs, self.num_agents)
-        if len(self.t_probs) == 1:
-            self.t_probs = np.repeat(self.t_probs, self.num_agents)
         if not len({self.num_agents,
                     len(self.B_probs), len(self.t_probs)}) == 1:
             raise SimulationException("Mismatch in B_probs t_probs size"
@@ -534,7 +588,7 @@ class Simulation:
             for a, i in zip(agents, range(len(inpts))):
                 a.listen(inpts[i])
 
-    def run_simulation(self):
+    def run_simulation(self, permutations=False):
         """
         Parameters
         ----------
@@ -547,36 +601,50 @@ class Simulation:
         """
         data = []
         logging.info("Running {} simulations...".format(self.num_rounds))
+        # Conversations
         for i in tqdm.tqdm(range(self.num_rounds)):
-            # Single speaker simulation
+            # Single speaker simulation (we want to reproduce Levy 2018 here)
             if self.single_agent_run:
                 speakers = [0]
                 listeners = [0]
-            # Speaker / Listener simulations
+            # Everyone talks to everyone else
+            elif permutations:
+                convos = list(it.product(range(self.num_agents),
+                                         range(self.num_agents)))
+                random.shuffle([(s, l) for s, l in convos if s != l])
+                speakers = [s for s, l in convos]
+                listeners = [l for s, l in convos]
+            # 50/50 speaker/listeners
             else:
                 speakers = set(np.random.choice(range(self.num_agents),
                                                 int(self.num_agents / 2),
                                                 replace=False))
                 listeners = set(range(self.num_agents)) - speakers
+
+            # Speaker / listener combinatinos
             for s, l in zip(speakers, listeners):
                 if self.variable_conversation_size:
                     num_utterances = np.random.randint(1, self.conversation_size)
                     utterances = self.agents[s].speak(num_utterances)
                 else:
                     utterances = self.agents[s].speak(self.conversation_size)
-                self.agents[l].listen(utterances)
 
-            r, that_rate = get_r_and_that_rate(self.agents)
-            data.append({
-                'round': i,
-                'r': r,
-                'that_rate': that_rate,
-                'n_agents': self.num_agents,
-                'n_rounds': self.num_rounds,
-                'n_warmup': self.num_warm_up,
-                'sim_number': self.sims_run,
-                'id': self.id
-            })
+                try:
+                    self.agents[l].listen(utterances)
+                except:
+                    import pdb; pdb.set_trace();
+
+
+            d_r_that = get_r_and_that_rates(self.agents)
+            for d in d_r_that:
+                d['round'] = i
+                d['n_agents'] = self.num_agents
+                d['n_rounds'] = self.num_rounds
+                d['n_warmup'] = self.num_warm_up
+                d['sim_number'] = self.sims_run
+                d['sim_id'] = self.id
+            data.extend(d_r_that)
+
         self.sims_run += 1
         return pd.DataFrame(data)
 
@@ -646,18 +714,20 @@ class Simulation:
 if __name__ == '__main__':
     # Initialize agents
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num-agents', type=int, default=10,
-                        help='Number of agents [default: 10].')
-    parser.add_argument('--num-rounds', type=int, default=10,
-                        help='Number of conversations [default: 10]')
-    parser.add_argument('--num-warm-up', type=int, default=100,
+    parser.add_argument('--num-agents', type=int, default=2,
+                        help='Number of agents [default: 2].')
+    parser.add_argument('--num-rounds', type=int, default=20,
+                        help='Number of conversations [default: 20]')
+    parser.add_argument('--num-warm-up', type=int, default=500,
                         help='Data pre conversation [default: 100]')
-    parser.add_argument('--conversation-size', type=int, default=10,
-                        help='Number of conversations [default: 10]')
+    parser.add_argument('--conversation-size', type=int, default=20,
+                        help='Number of conversations [default: 20]')
     parser.add_argument('--variable-conversation-size', action='store_true',
                         help='Make conversations variable in size.')
     parser.add_argument('--single-starting-lexicon', action='store_true',
                         help='Each agent starts with same language distribution.')
+    parser.add_argument('--permute-interlocutor-groups', action='store_true',
+                        help='Everybody talks to everyone else.')
     parser.add_argument('--B-prob', type=float, default=0.5,
                         help='Initial RC probability [default: 0.5]')
     parser.add_argument('--t-prob', type=float, default=0.5,
@@ -675,33 +745,43 @@ if __name__ == '__main__':
                              "facilitate debugging.")
     args = parser.parse_args()
 
-    B_prob = [0.5]
-    t_prob = [0.5]
-    k = [1.2]
-    c = [1.0]
-    alpha = [10]
-    sim = Simulation(0, 0, 1, args.num_rounds, args.num_warm_up,
-                     args.conversation_size, False, True, B_prob, t_prob,
-                     k, c, alpha, args.out_file)
 
+
+    ks = [2.0]
+    cs = [2.0]
+    num_runs = 20
+    alpha = [1.0]
+    # ks = [[float(k)/20] for k in range(20, 42)]
+    # cs = [[float(c)/10] for c in range(0, 21)]
     data = []
-    pbar = tqdm.tqdm(total=args.num_rounds, position=0)
-    for i in range(args.num_rounds):
-        res = sim.run_simulation()
+    pbar = tqdm.tqdm(total=len(ks)*len(cs)*num_runs, position=0)
+    i = 0
+    for run in range(num_runs):
+        # for k in ks:
+        #     for c in cs:
+        B_prob = [np.random.beta(1, 1) for _ in range(args.num_agents)]
+        t_prob = [np.random.beta(1, 1) for _ in range(args.num_agents)]
+
+        sim = Simulation(i, i, args.num_agents, args.num_rounds, args.num_warm_up,
+                         args.conversation_size, False, False, B_prob, t_prob,
+                         ks, cs, alpha, args.out_file)
+        res = sim.run_simulation(args.permute_interlocutor_groups)
         data.append(res)
+        i += 1
         pbar.update()
     pbar.close()
 
     df_results = pd.concat(data)
-    df_results.to_csv(args.out_file)
+    df_results.to_csv("single-agent-run.csv")
 
     # results = []
-    # n_sims = 2
-    #
+    # n_sims = 10
     #
     # ks = [float(k)/10 for k in range(10, 21)]
-    # cs = [float(k) / 10 for k in range(10, 21)]
+    # cs = [float(c)/10 for c in range(10, 21)]
     # total = len(list(it.product(ks, cs))) * n_sims
+    #
+    # alpha = [1.]
     #
     # pbar = tqdm.tqdm(total=total, position=0)
     #
@@ -713,9 +793,9 @@ if __name__ == '__main__':
     #         B_prob = [np.random.beta(1, 1)]
     #         t_prob = [np.random.beta(1, 1)]
     #         logging.info("B_prob:{}, t_prob:{}".format(B_prob, t_prob))
-    #         sim = Simulation(id_, id_, 1, args.num_rounds, args.num_warm_up,
+    #         sim = Simulation(id_, id_, args.num_agents, args.num_rounds, args.num_warm_up,
     #                          args.conversation_size, False, True, B_prob, t_prob,
-    #                          k, c, [1.], args.out_file)
+    #                          k, c, alpha, args.out_file)
     #         id_ += 1
     #         for i in range(n_sims):
     #             data = sim.run_simulation()
