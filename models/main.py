@@ -3,28 +3,16 @@
 Central simulation run file.
 
 Example usage:
-    >>> python -m models.main --config-path "./configs/basic_config.cfg"
+    >>> python -m models.main --config-path "./configs/basic_config.cfg" --checkpoints
 
 """
-
-import timeit
-
 from simulation import *
 
-
-def run(id_, seed, num_agents, num_rounds, num_warm_up, conversation_size,
-        variable_conversation_size, single_starting_lexicon, B_probs, t_probs,
-        ks, cs, alphas, out_dir):
-    sim = Simulation(id_, seed, num_agents, num_rounds, num_warm_up,
-                     conversation_size, variable_conversation_size,
-                     single_starting_lexicon, B_probs, t_probs, ks, cs, alphas,
-                     out_dir)
-    return sim.run_simulation()
 
 if __name__ == '__main__':
     import argparse
     import ConfigParser
-    import json
+
     import itertools as it
     import multiprocessing
 
@@ -112,7 +100,6 @@ if __name__ == '__main__':
         else:
             alphas = [config.getfloat('AGENTS', 'alphas')]
         return alphas
-
 
 
     # Outputs dir

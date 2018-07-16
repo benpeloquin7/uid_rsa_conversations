@@ -19,7 +19,6 @@ import random
 import re
 import seaborn as sns
 import tqdm
-import warnings
 
 # warnings.filterwarnings("error")  # catch numpy.corrcoef RunTimeWarining
 sns.set_style('whitegrid')
