@@ -5,32 +5,330 @@ date: "7/11/2018"
 output: html_document
 ---
 
-```{r}
+```{r warning=FALSE, message=FALSE}
 library(tidyverse)
 ```
 
-```{r read-in-data}
-fp <- "../output/results.csv"
-df <- read.csv(fp)
+# Sanity-check - reprouce Levy (2018) in single agent simulations.
+
+```{r}
+# fp <- "../outputs/agent-10-full.csv"
+fp_rsa_1 <- "../outputs/agent-1-full.csv"
+fp_no_rsa_1 <- "../outputs/agent-1-no-rsa-full.csv"
+fp_rsa_2 <- "../outputs/agent-2-full.csv"
+fp_no_rsa_2 <- "../outputs/agent-2-no-rsa-full.csv"
+
+df <- rbind(
+  read.csv(fp_rsa_1) %>% mutate(use_rsa=TRUE),
+  read.csv(fp_no_rsa_1) %>% mutate(use_rsa=FALSE),
+  read.csv(fp_rsa_2) %>% mutate(use_rsa=TRUE),
+  read.csv(fp_no_rsa_2) %>% mutate(use_rsa=FALSE)
+)
 ```
 
 ```{r}
-df %>% 
-  mutate(id_=paste0(id,"-", sim_number)) %>%
-  ggplot(aes(x=round, y=that_rate, col=as.factor(id_))) +
-    geom_line() +
+df_stable %>% View
+```
+
+
+```{r}
+# df <- df %>%
+#   mutate(is_stable=that_rate < 0.999 & that_rate > 0.001)
+
+# Get max rounds by id, sim_id
+max_rounds <- df[!is.na(df$r), ] %>%
+  group_by(use_rsa, n_agents, id, sim_id) %>%
+  summarise(max_round=max(round))
+
+get_max_round <- function(use_rsa_, n_agents_, id_, sim_id_) {
+  r <- subset(max_rounds, (use_rsa==use_rsa_ & n_agents==n_agents_ & id==id_ & sim_id==sim_id_))$max_round
+  return (r)
+}
+
+# Stable if max-round is n_rounds-1
+df_stable <- df[!is.na(df$r), ] %>%
+  rowwise %>%
+  mutate(max_round=get_max_round(use_rsa, n_agents, id, sim_id),
+         is_final_round=ifelse(max_round==round, TRUE, FALSE),
+         stable=ifelse(max_round==n_rounds-1, TRUE, FALSE))
+```
+
+
+```{r sample-that-rate-trajectories}
+sims <- sample(unique(df_stable$sim_id), min(length(unique(df_stable$sim_id)), 16))
+
+df_stable %>%
+  filter(sim_id %in% sims, id=='pop') %>%
+  ggplot(aes(x=round, y=that_rate, lty=use_rsa, col=as.factor(n_agents))) +
+    geom_line(alpha=0.9) +
     ylim(0, 1) +
+    ggtitle("Sample that-rate trajectories") +
+    facet_wrap(~sim_id) +
     theme_classic()
+```
+
+```{r sample-r-trajectories}
+df_stable %>%
+  filter(sim_id %in% sims, id=='pop') %>%
+  ggplot(aes(x=round, y=r, lty=use_rsa, col=as.factor(n_agents))) +
+    geom_line(alpha=0.9) +
+    ylim(-1, 1) +
+    ggtitle("Sample r trajectories") +
+    facet_wrap(~sim_id) +
+    theme_classic() 
 ```
 
 ```{r}
-df %>% 
-  mutate(id_=paste0(id,"-", sim_number)) %>%
-  ggplot(aes(x=round, y=r, col=as.factor(id_))) +
-    geom_line() +
+df_stable %>%
+  filter(id=='pop') %>%
+  ggplot(aes(x=round, y=r, lty=use_rsa, col=as.factor(sim_id))) +
+    geom_line(alpha=0.6) +
+    ylim(-1, 1) +
+    theme_classic() +
+    theme(legend.position='none') +
+    facet_wrap(n_agents~use_rsa)
+```
+
+```{r all-population-that-rate-trajectories}
+df_stable %>%
+  filter(id=='pop') %>%
+  ggplot(aes(x=round, y=that_rate, col=as.factor(sim_id))) +
+    geom_line(alpha=0.6) +
     ylim(0, 1) +
+    theme_classic() +
+    theme(legend.position='none') +
+    facet_wrap(n_agents~use_rsa)
+```
+
+
+```{r}
+df_stable %>%
+  filter(is_final_round, id=='pop') %>%
+  ggplot(aes(x=that_rate,y=..density..)) + 
+      geom_histogram(bins=32) + 
+      scale_x_continuous(limits=c(-0.05,1.05)) +
+      ylab("Probability density") +
+      xlab(expression(paste("Marginal frequency of optional marker ",t))) +
+      theme_classic() +
+      facet_wrap(n_agents~use_rsa)
+```
+
+```{r}
+df_stable %>%
+  filter(is_final_round, id=='pop') %>%
+  ggplot(aes(x=r, y=..density..)) + 
+    geom_histogram(bins=42, alpha=0.7) + 
+    scale_x_continuous(limits=c(-1.05,1.05)) +
+    ylab("Probability density") +
+    xlab("Pearson correlation between\nphrase onset & t probabilities") + 
+    theme_classic() +
+    facet_wrap(n_agents~use_rsa)
+```
+
+
+```{r}
+df_stable %>%
+  filter(id=='pop') %>%
+  group_by(use_rsa, n_agents) %>%
+  summarise(mean_r=mean(r),
+            sd_r=sd(r))
+```
+
+# Old plots
+
+
+```{r r-trajectories}
+df %>%
+  mutate(round=as.numeric(round),
+         stable=ifelse(sim_id %in% stables, 'stable-optionality', 'conventionalized')) %>%
+  ggplot(aes(x=round, y=r, col=stable, group=sim_id)) +
+    geom_line(alpha=0.3) +
+    ylim(-1, 1) +
+    theme(legend.position="none") +
+    theme_classic() +
+    ggtitle("r trajectories") +
+    facet_wrap(~id)
+```
+
+```{r}
+df %>%
+  filter(id=='pop') %>%
+  mutate(round=as.numeric(round)) %>%
+  ggplot(aes(x=round, y=r, col=is_stable, group=sim_id)) +
+    geom_line(alpha=0.3) +
+    theme(legend.position="none") +
+    theme_classic() +
+    ggtitle("r trajectories")
+```
+
+
+```{r}
+df %>%
+  mutate(round=as.numeric(round)) %>%
+         # stable=ifelse(sim_id %in% stables, 'stable-optionality', 'conventionalized')) %>%
+  ggplot(aes(x=round, y=that_rate, col=is_stable, group=sim_id)) +
+    geom_line(alpha=0.3) +
+    theme(legend.position="none") +
+    theme_classic() +
+    ggtitle("that-rate trajectories") +
+    facet_wrap(~id)
+```
+```{r}
+df %>%
+  filter(id=='pop') %>%
+  mutate(round=as.numeric(round),
+         stable=ifelse(sim_id %in% stables, 'stable-optionality', 'conventionalized')) %>%
+  ggplot(aes(x=round, y=that_rate, col=stable, group=sim_id)) +
+    geom_line(alpha=0.3) +
+    theme(legend.position="none") +
+    theme_classic() +
+    ggtitle("that-rate trajectories")
+```
+
+
+
+
+## Stable optionality plot
+
+
+```{r}
+# R. Levy's preprocessing
+# dat$stable <- with(dat,thatrate > 0.001 & thatrate < 0.999)
+# dat <- subset(dat, ! (k==1.0 & c==0.0))
+# dat.summary <- dat %>% group_by(k,c) %>%
+#   dplyr:::summarise(stable=mean(stable),r=mean(r))
+
+# This preprocessing is only valid for stable optionality plot
+df_preprocessed <- df %>%
+  filter(is_final_round, id!='pop') %>%
+  filter(k != 1.0, c != 0.0) %>%
+  group_by(id, k, c) %>%
+  summarise(stable=mean(is_stable), r=mean(r))
+```
+
+
+```{r}
+stables <- df %>% 
+  filter(is_final_round) %>%
+  mutate(stable=ifelse(that_rate > 0.1 & that_rate < 0.9, TRUE, FALSE)) %>%
+  filter(stable)
+stables <- stables$sim_id
+# Plot all trajectories  
+```
+```{r plot-reproduce-stable-optionality-grid}
+df_preprocessed %>%
+  filter(id!='pop') %>%
+  ggplot(aes(k,c)) + 
+    geom_tile(aes(fill=r),colour="white") +
+    labs(y=expression(paste("String length cost parameter ", c)), fill="stable\noptionality\nrate") +
+    theme_classic() +
+    scale_x_continuous(name=expression(paste("Nonuniformity penalization parameter ",k)),
+                       breaks=seq(0,2,by=0.2))
+```
+
+```{r}
+df %>%
+  group_by(round) %>%
+  summarise(mean_r=mean(r),
+            r_var=sd(r),
+            mean_that_rate=mean(that_rate),
+            that_rate_var=sd(that_rate)) %>%
+  gather(typ, val, c(r_var, that_rate_var, mean_r, mean_that_rate)) %>%
+  ggplot(aes(round, val, col=typ)) +
+    geom_line() +
+    theme_classic()
+```
+```{r}
+df %>%
+  ggplot(aes(round, r, col=sim_id)) +
+    geom_point(alpha=0.3) +
     theme_classic()
 ```
 
+
+
+```{r}
+df %>%
+  filter(sim_id < 10) %>%
+  ggplot(aes(x=round, y=r, col=as.factor(paste0(id)))) +
+    geom_line() +
+    ylim(-1, 1) +
+    theme_classic() +
+    theme(legend.position="none") +
+    facet_wrap(~sim_id)
+```
+
+```{r}
+df %>%
+  filter(sim_id < 4) %>%
+  ggplot(aes(x=round, y=that_rate, col=as.factor(paste0(id)))) +
+    geom_line() +
+    ylim(-1, 1) +
+    theme_classic() +
+    theme(legend.position="none") +
+    facet_wrap(~sim_id)
+```
+
+
+
+```{r}
+
+
+n_samples <- 100
+# seed_samples <- sample(df_results$seed, n_samples)
+df %>%
+  filter(id=='pop', sim_id < 10) %>%
+  mutate(round=as.numeric(round),
+         is_stable=ifelse(that_rate < 0.999 & that_rate > 0.001, TRUE, FALSE)) %>%
+  ggplot(aes(x=round, y=r, col=is_stable, group=sim_id)) +
+    geom_line(alpha=0.3) +
+    theme_classic() +
+    theme(legend.position="none") +
+    ggtitle("that-rate trajectories")
+```
+
+
+```{r}
+df %>%
+  filter(id=='pop') %>%
+  ggplot(aes(x=round, y=r, col=as.factor(sim_id))) +
+    geom_line() +
+    ylim(-1, 1) +
+    theme_classic() +
+    theme(legend.position="none")
+```
+
+
+
+
+
+```{r}
+df %>% 
+  group_by(id, round) %>%
+  summarise(mean_r=mean(r, na.rm=TRUE),
+            sd_r=sd(r, na.rm=TRUE),
+            mean_that_rate=mean(that_rate),
+            sd_that_rate=sd(that_rate)) %>%
+  ggplot(aes(x=round, y=mean_r)) +
+    geom_line() +
+    ylim(-1, 1) +
+    theme_classic() +
+    theme(legend.position="none") +
+    facet_wrap(~id)
+```
+```{r}
+df %>% 
+  group_by(id, round) %>%
+  summarise(mean_r=mean(r, na.rm=TRUE),
+            sd_r=sd(r, na.rm=TRUE),
+            mean_that_rate=mean(that_rate),
+            sd_that_rate=sd(that_rate)) %>%
+  ggplot(aes(x=round, y=mean_that_rate)) +
+    geom_line() +
+    ylim(-1, 1) +
+    theme_classic() +
+    theme(legend.position="none") +
+    facet_wrap(~id)
+```
 
 
