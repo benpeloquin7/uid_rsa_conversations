@@ -21,16 +21,24 @@ fp_rsa_100 <- "../outputs/agent-100-full.csv"           # not permuted conversat
 fp_no_rsa_100 <- "../outputs/agent-100-no-rsa-full.csv" # not permuted conversation partners
 fp_rsa_10 <- "../outputs/agent-10-full.csv"
 fp_no_rsa_10 <- "../outputs/agent-10-no-rsa-full.csv"
+fp_rsa_6 <- "../outputs/agent-6-full.csv"
+fp_no_rsa_6 <- "../outputs/agent-6-no-rsa-full.csv"
+fp_rsa_4 <- "../outputs/agent-4-full.csv"
+fp_no_rsa_4 <- "../outputs/agent-4-no-rsa-full.csv"
 fp_rsa_2 <- "../outputs/agent-2-full.csv"
 fp_no_rsa_2 <- "../outputs/agent-2-no-rsa-full.csv"
 fp_rsa_1 <- "../outputs/agent-1-full.csv"
 fp_no_rsa_1 <- "../outputs/agent-1-no-rsa-full.csv"
 
 df <- rbind(
-  read.csv(fp_rsa_100) %>% mutate(use_rsa=TRUE),
-  read.csv(fp_no_rsa_100) %>% mutate(use_rsa=FALSE),
+  # read.csv(fp_rsa_100) %>% mutate(use_rsa=TRUE),
+  # read.csv(fp_no_rsa_100) %>% mutate(use_rsa=FALSE),
   read.csv(fp_rsa_10) %>% mutate(use_rsa=TRUE),
   read.csv(fp_no_rsa_10) %>% mutate(use_rsa=FALSE),
+  read.csv(fp_rsa_6) %>% mutate(use_rsa=TRUE),
+  read.csv(fp_no_rsa_6) %>% mutate(use_rsa=FALSE),
+  read.csv(fp_rsa_4) %>% mutate(use_rsa=TRUE),
+  read.csv(fp_no_rsa_4) %>% mutate(use_rsa=FALSE),
   read.csv(fp_rsa_2) %>% mutate(use_rsa=TRUE),
   read.csv(fp_no_rsa_2) %>% mutate(use_rsa=FALSE),
   read.csv(fp_rsa_1) %>% mutate(use_rsa=TRUE),
@@ -41,7 +49,8 @@ df <- rbind(
 ```{r preprocess-1}
 df_pop <- df %>%
   filter(id=='pop')
-# df_stable %>% View
+df_no_pop <- df %>%
+  filter(id!='pop')
 ```
 
 Preprocessing
@@ -57,7 +66,7 @@ get_max_round <- function(use_rsa_, n_agents_, id_, sim_id_) {
 }
 # Attempt with mapply -- note this is slow running with we don't restrict to id==pop (for larger speaker populations).
 max_rounds_list <- mapply(get_max_round, df_stable$use_rsa, df_stable$n_agents, df_stable$id, df_stable$sim_id)
-# Attemp with purrr:pmap
+# Attempt with purrr:pmap
 # max_rounds_list <- df_stable %>%
 #   select(use_rsa, n_agents, id, sim_id) %>%
 #   purrr::pmap(., function(use_rsa, n_agents, id, sim_id) {get_max_round(use_rsa, n_agents, id, sim_id)}) %>%
@@ -67,8 +76,8 @@ assertthat::are_equal(length(max_rounds_list), nrow(df_stable))
 # Assign max round
 df_stable$max_round <- max_rounds_list
 df_stable <- df_stable %>%
-  mutate(is_final_round=max_round,
-         stable=max_round==n_rounds-1)
+  mutate(stable=max_round==n_rounds-1,
+         is_final_round=max_round==round)
 ```
 
 ### Samples
@@ -79,6 +88,7 @@ sims <- sample(unique(df_stable$sim_id), min(length(unique(df_stable$sim_id)), 1
 
 df_stable %>%
   filter(sim_id %in% sims, id=='pop') %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
   ggplot(aes(x=round, y=that_rate, lty=use_rsa, col=as.factor(n_agents))) +
     geom_line(alpha=0.9) +
     ylim(0, 1) +
@@ -90,6 +100,7 @@ df_stable %>%
 ```{r sample-r-trajectories}
 df_stable %>%
   filter(sim_id %in% sims, id=='pop') %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
   ggplot(aes(x=round, y=r, lty=use_rsa, col=as.factor(n_agents))) +
     geom_line(alpha=0.9) +
     ylim(-1, 1) +
@@ -103,55 +114,63 @@ df_stable %>%
 ```{r}
 df_stable %>%
   filter(id=='pop') %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
   ggplot(aes(x=round, y=r, lty=use_rsa, col=as.factor(sim_id))) +
     geom_line(alpha=0.6) +
     ylim(-1, 1) +
     theme_classic() +
     theme(legend.position='none') +
-    facet_wrap(n_agents~use_rsa, nrow=4)
+    facet_wrap(n_agents~use_rsa, nrow=5)
 ```
 
 ### `that-rate` Trajectories
 ```{r all-population-that-rate-trajectories}
 df_stable %>%
   filter(id=='pop') %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
   ggplot(aes(x=round, y=that_rate, col=as.factor(sim_id))) +
     geom_line(alpha=0.6) +
     ylim(0, 1) +
     theme_classic() +
     theme(legend.position='none') +
-    facet_wrap(n_agents~use_rsa, nrow=4)
+    facet_wrap(n_agents~use_rsa, nrow=5)
 ```
 
 ### `that-rate` distr
 ```{r}
 df_stable %>%
   filter(is_final_round, id=='pop') %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
   ggplot(aes(x=that_rate,y=..density..)) + 
       geom_histogram(bins=32) + 
       scale_x_continuous(limits=c(-0.05,1.05)) +
       ylab("Probability density") +
       xlab(expression(paste("Marginal frequency of optional marker ", t))) +
       theme_classic() +
-      facet_wrap(n_agents~use_rsa, nrow=4)
+      facet_wrap(n_agents~use_rsa, nrow=5)
 ```
 
 ### `r` distr
 ```{r}
-df_stable %>%
+df_stable %>% 
   filter(is_final_round, id=='pop') %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
   ggplot(aes(x=r, y=..density.., fill=as.factor(n_agents))) + 
+    geom_vline(xintercept=0.0, lty=2, alpha=0.3) +
     geom_histogram(bins=42, alpha=0.9) + 
     scale_x_continuous(limits=c(-1.05,1.05)) +
     ylab("Probability density") +
     xlab("Pearson correlation between\nphrase onset & t probabilities") + 
     theme_classic() +
-    facet_wrap(n_agents~use_rsa, nrow=4)
+    facet_grid(n_agents~use_rsa)
 ```
 
 ### Significant diffs?
+
+this is actually really interesting -- the effect is not a fun
 ```{r means-plot}
 df_stable %>%
+  filter(is_final_round) %>%
   group_by(use_rsa, n_agents) %>%
   summarise(mean_r=mean(r),
             sd_r=sd(r),
@@ -161,8 +180,135 @@ df_stable %>%
   ggplot(aes(x=as.factor(n_agents), y=mean_r, fill=use_rsa)) +
     geom_bar(stat='identity', position='dodge') +
     geom_errorbar(aes(ymin=ci_lo, ymax=ci_hi), width=0.2, position=position_dodge(0.9)) +
-    ylim(-0.25, 0.1) +
+    ylim(-0.3, 0.1) +
     theme_classic()
+```
+```{r plo1-means-2}
+df_stable %>%
+  filter(is_final_round) %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
+  ggplot(aes(x=as.factor(n_agents), y=r, col=use_rsa, fill=use_rsa)) +
+    geom_hline(yintercept=0.0, lty=2, alpha=0.2) +
+    geom_point(aes(col=use_rsa), alpha=0.4) +
+    # geom_boxplot(alpha=0) +
+    geom_violin(alpha=0.3) +
+    
+    coord_flip() +
+    theme_classic() +
+    facet_wrap(~use_rsa)
+```
+
+
+## Convergence and entropy
+
+Average lexicon entropy decreases across RSA conversations.
+```{r plot-lexicon-entropy}
+df_pop %>%
+  group_by(use_rsa, n_agents, round) %>%
+  summarise(mean_entropy=mean(entropy),
+            sd_entropy=sd(entropy),
+            n=n(),
+            ci_hi=mean_entropy+qnorm(0.975)/sqrt(n),
+            ci_lo=mean_entropy+qnorm(0.025)/sqrt(n)) %>%
+  ungroup() %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
+  ggplot(aes(x=round, y=mean_entropy, col=use_rsa)) +
+    geom_line() +
+    geom_errorbar(aes(ymin=ci_lo, ymax=ci_hi), alpha=0.3) +
+    theme_classic() +
+    facet_wrap(~n_agents)
+```
+
+```{r}
+df_stable %>%
+  filter(is_final_round) %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
+  ggplot(aes(x=as.factor(n_agents), y=entropy, fill=use_rsa)) +
+    geom_boxplot() +
+    theme_classic()
+```
+
+Decerease in lexicon entropy.
+```{r}
+df_stable %>%
+  filter(is_final_round, id=='pop')  %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
+  select(use_rsa, n_agents, sim_id, entropy) %>%
+  spread(use_rsa, entropy) %>%
+  mutate(diff=rsa-`no-rsa`) %>%
+  group_by(n_agents) %>%
+  ggplot(aes(x=as.factor(n_agents), y=diff, fill=as.factor(n_agents))) +
+    geom_hline(yintercept=0, lty=2, alpha=0.4, col='red')  +
+    geom_violin(aes(fill=as.factor(n_agents)), alpha=0.4, trim=FALSE) +
+    geom_point(alpha=0.5) +
+    coord_flip() +
+    theme_classic()
+```
+
+
+Due to lower overall entropy individual speakers lexicons converge more closely, perhaps as a function of populations size.
+```{r plot-avg-speaker-kl}
+df_no_pop %>% 
+  group_by(use_rsa, n_agents, round) %>%
+  summarise(mean_KL=mean(KL),
+            sd_KL=sd(KL),
+            n=n(),
+            ci_hi=mean_KL+qnorm(0.975)/sqrt(n),
+            ci_lo=mean_KL+qnorm(0.025)/sqrt(n)) %>%
+  ungroup() %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
+  ggplot(aes(x=round, y=mean_KL, col=as.factor(n_agents))) +
+    geom_line() +
+    # geom_errorbar(aes(ymin=ci_lo, ymax=ci_hi)) +
+    ylim(0, 0.3) +
+    theme_classic() +
+    facet_wrap(~use_rsa)
+```
+
+B-prob example (one simulation). What should aggregate statistic be?
+
+The population converges on a shared distribution over relative clauses (worth thinking as need-probabilities).
+```{r}
+df_no_pop %>%
+  filter(sim_id %in% c(10)) %>%
+  ggplot(aes(x=round, y=current_B_prob, col=as.factor(paste0(id, '-', sim_id)))) +
+    geom_line() +
+    theme_classic() +
+    facet_grid(use_rsa~n_agents)
+```
+
+t-prob example (one simulation). What should aggregate statistic be?
+
+However, there is *still* lots of individual-level variation in terms of optinal marking for RSA agents...
+```{r}
+df_no_pop %>%
+  filter(sim_id %in% c(10)) %>%
+  ggplot(aes(x=round, y=current_t_prob, col=as.factor(paste0(id, '-', sim_id)))) +
+    geom_line() +
+    theme_classic() +
+    facet_grid(use_rsa~n_agents)
+```
+
+Variance within a population `optional-t` usage increases for RSA agents.
+
+How to interpret this? As the conversations proceed the within population variance of `optional-t` usage increases for RSA speakers and declines for non-rsa speakers.
+```{r}
+df_no_pop %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
+  group_by(use_rsa, n_agents, id, round) %>%
+  summarise(mean_current_t_probs=mean(current_t_prob),
+            sd_current_t_probs=sd(current_t_prob)^2) %>%
+  group_by(use_rsa, n_agents, round) %>%
+  summarise(mean_sd_current_t_probs=mean(sd_current_t_probs),
+            sd_sd_current_t_probs=sd(sd_current_t_probs),
+            n=n(),
+            ci_lo=mean_sd_current_t_probs+qnorm(0.025)*sd_sd_current_t_probs/sqrt(n),
+            ci_hi=mean_sd_current_t_probs+qnorm(0.975)*sd_sd_current_t_probs/sqrt(n)) %>%
+  ggplot(aes(x=round, y=mean_sd_current_t_probs, col=as.factor(n_agents))) +
+    geom_errorbar(aes(ymin=ci_lo, ymax=ci_hi), alpha=0.4) +
+    geom_line() +
+    theme_classic() +
+    facet_grid(use_rsa~., scales="free")
 ```
 
 
@@ -183,7 +329,7 @@ summary(lm(r~as.factor(n_agents)+use_rsa, data=df_stable))
 
 # This preprocessing is only valid for stable optionality plot
 df_preprocessed <- df %>%
-  filter(is_final_round, id!='pop') %>%
+  filter(al_round, id!='pop') %>%
   filter(k != 1.0, c != 0.0) %>%
   group_by(id, k, c) %>%
   summarise(stable=mean(is_stable), r=mean(r))
@@ -209,4 +355,6 @@ df_preprocessed %>%
     scale_x_continuous(name=expression(paste("Nonuniformity penalization parameter ",k)),
                        breaks=seq(0,2,by=0.2))
 ```
+
+
 

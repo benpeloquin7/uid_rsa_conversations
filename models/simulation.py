@@ -19,6 +19,7 @@ import random
 import re
 import seaborn as sns
 import tqdm
+import warnings
 
 # warnings.filterwarnings("error")  # catch numpy.corrcoef RunTimeWarining
 sns.set_style('whitegrid')
@@ -126,6 +127,10 @@ def strings():
     return strings
 
 
+# Constant for all strings
+ALL_STRINGS = strings()
+
+
 def create_corpus(speakers, num_utterances_per_speaker=2500):
     corpus = Counter()
     for speaker in speakers:
@@ -142,6 +147,10 @@ def generate_alt(x):
 
 def contains_optional_t(s):
     return 't' in s
+
+
+def contains_rc(s):
+    return 'b' in s.lower()
 
 
 def rm_optional_t(s):
@@ -237,34 +246,139 @@ def get_r_and_that_rate(corpus):
     return r, that_rate,
 
 
-def get_r_and_that_rates(agents):
+def get_entropy(corpus):
+    """Corpus etropy.
+
+
+    Parameters
+    ----------
+    corpus: collections.Counter
+        Utterance counts.
+
+    Returns
+    -------
+    float
+        Entropy.
+
+    """
+
+    def _get_ent(pr):
+        return pr * np.log(pr)
+
+    cnts = np.array(corpus.values())
+    total = np.sum(cnts)
+    prs = cnts / float(total)
+    entrop = -np.sum(map(lambda x: _get_ent(x), prs))
+    return entrop
+
+
+def get_kl(corpus_1, corpus_2, all_utterances=ALL_STRINGS):
+    """Return kl-divergence between two corpus.
+
+    KL(p||q) = -\sum p(x) * log(q(x)/p(x))
+
+    Parameters
+    ----------
+    corpus_1: collections.Counter
+        Utterance counts.
+    corpus_2: collections.Counter
+        Utterances counts.
+    all_utterances: array-like
+        All utterances in lexicon.
+
+    Returns
+    -------
+    float
+        KL divergence.
+
+    """
+    c1_total = np.sum(corpus_1.values())
+    c2_total = np.sum(corpus_2.values())
+    kl = 0
+    for utt in all_utterances:
+        c1_prob = float(corpus_1[utt] if utt in corpus_1 else 0.0) / c1_total
+        c2_prob = float(corpus_2[utt] if utt in corpus_2 else 0.0) / c2_total
+        kl += 0.0 if (c2_prob == 0.0 or c1_prob == 0.0) \
+            else c1_prob * np.log(c2_prob / c1_prob)
+    return -kl
+
+
+def get_B_t_probs(corpus):
+    """Get relative clause (B_prob) and optional marker (t_prob) from a
+    corpus object.
+
+    Parameters
+    ----------
+    corpus: collections.Counter
+        Utterance counts
+
+    Returns
+    tuples of float
+        B_prob, t_prob.
+
+    """
+
+    non_rcs = 0  # non-relative clauses
+    rcs = 0      # relative clauses
+    ts = 0       # optional t's
+    total = np.sum(corpus.values())
+
+    for utt, cnt in corpus.items():
+        if contains_rc(utt):
+            rcs += cnt
+            if contains_optional_t(utt):
+                ts += cnt
+        else:
+            non_rcs += cnt
+
+    B_prob = float(rcs) / total
+    t_prob = float(ts) / rcs if rcs != 0 else 0
+    return B_prob, t_prob
+
+
+def get_round_statistics(agents):
     # Get individual agent data
     data = []
-    for agent in agents:
-        corpus = create_corpus([agent])
-        r, that_rate = get_r_and_that_rate(corpus)
-        data.append({
-            "id": agent.id,
-            "B_prob": agent.B_prob,
-            "t_prob": agent.t_prob,
-            "k": agent.k,
-            "c": agent.c,
-            "alpha": agent.alpha,
-            "that_rate": that_rate,
-            "r": r })
 
     # Get Population data
-    corpus = create_corpus(agents)
-    r, that_rate = get_r_and_that_rate(corpus)
+    pop_corpus = create_corpus(agents)
+    r, that_rate = get_r_and_that_rate(pop_corpus)
+    B_prob_, t_prob_ = get_B_t_probs(pop_corpus)
+    pop_entropy = get_entropy(pop_corpus)
     data.append({
         "id": "pop",
-        "B_prob": None,
-        "t_prob": None,
+        "original_B_prob": None,
+        "original_t_prob": None,
+        "current_B_prob": B_prob_,
+        "current_t_prob": t_prob_,
+        "KL": None,
+        "entropy": pop_entropy,
         "k": None,
         "c": None,
         "alpha": None,
         "that_rate": that_rate,
-        "r": r })
+        "r": r})
+
+    for agent in agents:
+        corpus = create_corpus([agent])
+        r, that_rate = get_r_and_that_rate(corpus)
+        B_prob_, t_prob_ = get_B_t_probs(corpus)
+        kl = get_kl(pop_corpus, corpus)
+        entropy = get_entropy(corpus)
+        data.append({
+            "id": agent.id,
+            "original_B_prob": agent.B_prob,
+            "original_t_prob": agent.t_prob,
+            "current_B_prob": B_prob_,
+            "current_t_prob": t_prob_,
+            "KL": kl,
+            "entropy": entropy,
+            "k": agent.k,
+            "c": agent.c,
+            "alpha": agent.alpha,
+            "that_rate": that_rate,
+            "r": r})
+
     return data
 
 
@@ -507,16 +621,19 @@ class Simulation:
 
 
     """
+
     def __init__(self, id, seed, num_agents, num_rounds, num_warmup,
-                 conversation_size, permute_convserations,  single_starting_lexicon,
-                 B_probs, t_probs, ks, cs, alphas, use_RSA, out_dir="./outputs/"):
+                 conversation_size, permute_conversations,
+                 single_starting_lexicon,
+                 B_probs, t_probs, ks, cs, alphas, use_RSA,
+                 out_dir="./outputs/"):
         self.id = id
         self.seed = seed
         self.num_agents = num_agents
         self.num_rounds = num_rounds
         self.num_warmup = num_warmup
         self.conversation_size = conversation_size
-        self.permute_convserations = permute_convserations
+        self.permute_conversations = permute_conversations
         self.single_starting_lexicon = single_starting_lexicon
         self.B_probs = B_probs
         self.t_probs = t_probs
@@ -606,7 +723,7 @@ class Simulation:
                 speakers = [0]
                 listeners = [0]
             # Everyone talks to everyone else
-            elif self.permute_convserations:
+            elif self.permute_conversations:
                 convos = list(it.product(range(self.num_agents),
                                          range(self.num_agents)))
                 random.shuffle([(s, l) for s, l in convos if s != l])
@@ -625,7 +742,7 @@ class Simulation:
                 self.agents[l].listen(utterances)
 
 
-            d_r_that = get_r_and_that_rates(self.agents)
+            d_r_that = get_round_statistics(self.agents)
             for d in d_r_that:
                 d['round'] = i
                 d['n_agents'] = self.num_agents

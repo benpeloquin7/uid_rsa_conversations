@@ -118,8 +118,8 @@ if __name__ == '__main__':
                          conversation_size, permute_conversations,
                          single_starting_lexicon, B_probs, t_probs, ks, cs,
                          alphas, use_RSA, out_file)
-
-        results.append(sim.run_simulation())
+        res = sim.run_simulation()
+        results.append(res)
         if args.checkpoints and i % 25 == 0:
             df_results = pd.concat(results)
             df_results.to_csv(os.path.join(out_dir, out_file[:-4] + "-{}-runs.csv".format(i)))
