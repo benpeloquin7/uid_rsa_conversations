@@ -12,3 +12,6 @@ configs/
 .Rproj.user
 *.Rproj
 *.Rhistory
+
+# jupyter noteboks
+./rsa_efficiency/\.ipynb_checkpoints/*
