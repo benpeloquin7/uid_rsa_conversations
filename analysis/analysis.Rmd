@@ -11,23 +11,27 @@ library(tidyverse)
 
 # Simulating UID negative correlation with UID cost in speaker/listener populations
 
+See https://github.com/benpeloquin7/uid_rsa_conversations/blob/master/models/simulation.py for modeling framework -- an extension of Levy (2018) / an alternative framework to the fixed point analysis.
+
 ### Summary
 
-Simply interacting with other agents gives rise to the effect in a population of speakers -- alternative take on fixed point analysis....
+  * Negative correlation arises in populations of RSA agents but not non-RSA agents.
 
+  * Negative correlation appears to increase as a function of population size.
+    * Population size increase is equivalent to greater RSA iterations (we should control for this across populations sizes.)
 
 ```{r read-data}
 fp_rsa_100 <- "../outputs/agent-100-full.csv"           # not permuted conversation partners
 fp_no_rsa_100 <- "../outputs/agent-100-no-rsa-full.csv" # not permuted conversation partners
-fp_rsa_10 <- "../outputs/agent-10-full.csv"
+fp_rsa_10 <- "../outputs/agent-10-full.csv"             # 10 agents
 fp_no_rsa_10 <- "../outputs/agent-10-no-rsa-full.csv"
-fp_rsa_6 <- "../outputs/agent-6-full.csv"
+fp_rsa_6 <- "../outputs/agent-6-full.csv"               # 6 agents
 fp_no_rsa_6 <- "../outputs/agent-6-no-rsa-full.csv"
-fp_rsa_4 <- "../outputs/agent-4-full.csv"
+fp_rsa_4 <- "../outputs/agent-4-full.csv"               # 4 agents
 fp_no_rsa_4 <- "../outputs/agent-4-no-rsa-full.csv"
-fp_rsa_2 <- "../outputs/agent-2-full.csv"
+fp_rsa_2 <- "../outputs/agent-2-full.csv"               # 2 agents
 fp_no_rsa_2 <- "../outputs/agent-2-no-rsa-full.csv"
-fp_rsa_1 <- "../outputs/agent-1-full.csv"
+fp_rsa_1 <- "../outputs/agent-1-full.csv"               # 1 agents
 fp_no_rsa_1 <- "../outputs/agent-1-no-rsa-full.csv"
 
 df <- rbind(
@@ -78,35 +82,6 @@ df_stable$max_round <- max_rounds_list
 df_stable <- df_stable %>%
   mutate(stable=max_round==n_rounds-1,
          is_final_round=max_round==round)
-```
-
-### Samples
-
-Note the facet numbers are not meaningful... should show this another way.
-```{r sample-that-rate-trajectories}
-sims <- sample(unique(df_stable$sim_id), min(length(unique(df_stable$sim_id)), 16))
-
-df_stable %>%
-  filter(sim_id %in% sims, id=='pop') %>%
-  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
-  ggplot(aes(x=round, y=that_rate, lty=use_rsa, col=as.factor(n_agents))) +
-    geom_line(alpha=0.9) +
-    ylim(0, 1) +
-    ggtitle("Sample that-rate trajectories") +
-    facet_wrap(~sim_id) +
-    theme_classic()
-```
-
-```{r sample-r-trajectories}
-df_stable %>%
-  filter(sim_id %in% sims, id=='pop') %>%
-  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
-  ggplot(aes(x=round, y=r, lty=use_rsa, col=as.factor(n_agents))) +
-    geom_line(alpha=0.9) +
-    ylim(-1, 1) +
-    ggtitle("Sample r trajectories") +
-    facet_wrap(~sim_id) +
-    theme_classic() 
 ```
 
 ### `r` Trajectories
@@ -311,7 +286,34 @@ df_no_pop %>%
     facet_grid(use_rsa~., scales="free")
 ```
 
+### Samples
 
+Note the facet numbers are not meaningful... should show this another way.
+```{r sample-that-rate-trajectories}
+sims <- sample(unique(df_stable$sim_id), min(length(unique(df_stable$sim_id)), 16))
+
+df_stable %>%
+  filter(sim_id %in% sims, id=='pop') %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
+  ggplot(aes(x=round, y=that_rate, lty=use_rsa, col=as.factor(n_agents))) +
+    geom_line(alpha=0.9) +
+    ylim(0, 1) +
+    ggtitle("Sample that-rate trajectories") +
+    facet_wrap(~sim_id) +
+    theme_classic()
+```
+
+```{r sample-r-trajectories}
+df_stable %>%
+  filter(sim_id %in% sims, id=='pop') %>%
+  mutate(use_rsa=factor(ifelse(use_rsa, 'rsa', 'no-rsa'), levels=c('rsa', 'no-rsa'))) %>%
+  ggplot(aes(x=round, y=r, lty=use_rsa, col=as.factor(n_agents))) +
+    geom_line(alpha=0.9) +
+    ylim(-1, 1) +
+    ggtitle("Sample r trajectories") +
+    facet_wrap(~sim_id) +
+    theme_classic() 
+```
 
 ```{r}
 summary(lm(r~as.factor(n_agents)+use_rsa, data=df_stable))
