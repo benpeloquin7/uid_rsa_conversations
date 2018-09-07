@@ -1,0 +1,121 @@
+// World set-up
+var utterances = ['a', 'b', 'c']
+var meanings = [1, 2, 3]
+var utterancePrior = function() {
+  return categorical({vs: utterances, ps: [0.1, 0.3, 0.6]})
+}
+var utterancePriorDistr = Infer({method: 'enumerate', model:utterancePrior})
+var meaningsPrior = function() {
+  return categorical({vs: meanings, ps: [0.1, 0.3, 0.6]})
+}
+var meaningsPriorDistr = Infer({model: meaningsPrior})
+
+var lang0 = { 'a': [1], 'b': [2], 'c': [3]}
+var lang1 = { 'a': [2], 'b': [1], 'c': [3]}
+var lang2 = { 'a': [3], 'b': [2], 'c': [1]}
+var lang3 = { 'a': [3], 'b': [1, 2]}
+var language_map = {
+  'lang0': lang0,
+  'lang1': lang1,
+  'lang2': lang2,
+  'lang3': lang3
+}
+
+var delta = function(u, m, language) {
+  return language[u].includes(m)
+}
+
+// Helpers
+var mean = function(arr) {
+  Math.sum(arr) / arr.length
+}
+
+var meaningLoss = function(ms, mPrimes) {
+  var corrects = map2(function(x, y) {x==y}, ms, mPrimes)
+  return mean(corrects)
+}
+
+var cost = function(u) {
+  return -utterancePriorDistr.score(u)
+}
+
+var averageLength = function(utterances) {
+  var costs = map(function(u) {return cost(u)}, utterances)
+  return mean(costs)
+}
+
+var L0 = function(u, langName) {
+  Infer({
+    model() {
+      var m = meaningsPrior()
+      var lang = language_map[langName]
+      factor(delta(u, m, lang) ? 0 : -Infinity)
+      return m
+    }
+  })
+}
+
+var alpha = 1.
+var S1 = function(m, langName) {
+  Infer({
+    model() {
+      var lang = language_map[langName]
+      var u = uniformDraw(Object.keys(lang))
+      factor(alpha * (L0(u, langName).score(m) - cost(u)))
+      return u
+    }
+  })
+}
+
+var L1 = function(u, langName) {
+  Infer({
+    model() {
+      var m = meaningsPrior()
+      factor(S1(m, langName).score(u))
+      return m
+    }
+  })
+}
+
+
+var S2 = function(m, langName) {
+  Infer({
+    model() {
+      var lang = language_map[langName]
+      var u = uniformDraw(Object.keys(lang))
+      factor(alpha * (L1(u, langName).score(m) - cost(u)))
+      return u
+    }
+  })
+}
+
+// Empirical estimates
+// ===================
+// var meaningsData = repeat(30, meaningsPrior)
+// var speakerData = map(function(m) {sample(S1(m, 'lang0'))}, meaningsData)
+// var speakerCosts = averageLength(speakerData)
+// var listenerData = map(function(u) {sample(L0(u, 'lang0'))}, speakerData)
+// var listenerCosts = meaningLoss(meaningsData, listenerData)
+// console.log(speakerCosts)
+// console.log(listenerCosts)
+
+
+var systemCrossEntropy = function(speaker, listener, langName) {
+  Infer({
+    model() {
+      var m = meaningsPrior()
+      var u = sample(speaker(m, langName))
+      return (listener(u, langName).score(m) + cost(u))
+    }
+  })
+}
+
+
+
+console.log(expectation(systemCrossEntropy(S2, L1, 'lang0')))
+console.log(expectation(systemCrossEntropy(S2, L1, 'lang1')))
+console.log(expectation(systemCrossEntropy(S2, L1, 'lang2')))
+console.log(expectation(systemCrossEntropy(S2, L1, 'lang3')))
+
+// cost('c')
+// viz.table(S1(1, 'lang0'))
