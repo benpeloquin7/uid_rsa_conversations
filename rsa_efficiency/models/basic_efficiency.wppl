@@ -14,11 +14,13 @@ var lang0 = { 'a': [1], 'b': [2], 'c': [3]}
 var lang1 = { 'a': [2], 'b': [1], 'c': [3]}
 var lang2 = { 'a': [3], 'b': [2], 'c': [1]}
 var lang3 = { 'a': [3], 'b': [1, 2]}
+var lang4 = { 'c': [1, 2, 3]}
 var language_map = {
   'lang0': lang0,
   'lang1': lang1,
   'lang2': lang2,
-  'lang3': lang3
+  'lang3': lang3,
+  'lang4': lang4
 }
 
 var delta = function(u, m, language) {
@@ -99,23 +101,25 @@ var S2 = function(m, langName) {
 // console.log(speakerCosts)
 // console.log(listenerCosts)
 
-
+var speaker_effort = 1.
+var listener_effort = 1.
 var systemCrossEntropy = function(speaker, listener, langName) {
   Infer({
     model() {
       var m = meaningsPrior()
       var u = sample(speaker(m, langName))
-      return (listener(u, langName).score(m) + cost(u))
+      return (-listener_effort*listener(u, langName).score(m) + speaker_effort*cost(u))
     }
   })
 }
 
 
 
-console.log(expectation(systemCrossEntropy(S2, L1, 'lang0')))
-console.log(expectation(systemCrossEntropy(S2, L1, 'lang1')))
-console.log(expectation(systemCrossEntropy(S2, L1, 'lang2')))
-console.log(expectation(systemCrossEntropy(S2, L1, 'lang3')))
-
+console.log(expectation(systemCrossEntropy(S1, L0, 'lang0')))
+console.log(expectation(systemCrossEntropy(S1, L0, 'lang1')))
+console.log(expectation(systemCrossEntropy(S1, L0, 'lang2')))
+console.log(expectation(systemCrossEntropy(S1, L0, 'lang3')))
+console.log(expectation(systemCrossEntropy(S1, L0, 'lang4')))
+systemCrossEntropy(S1, L0, 'lang4')
 // cost('c')
 // viz.table(S1(1, 'lang0'))
