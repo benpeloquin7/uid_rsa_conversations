@@ -37,7 +37,7 @@ def crossEntropy(M1, M2):
     """
     res = []
     for row in range(M1.shape[0]):
-        for col, _ in enumerate(M1[row, :]):
+        for col in range(M1.shape[1]):
             s = M1[row, col]
             l = M2[row, col]
             score = s * -np.log2(l) if (l != 0.) else 0.

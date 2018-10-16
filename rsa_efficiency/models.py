@@ -1,6 +1,32 @@
+"""models.py
+
+    >>> python rsa_efficiency/models.py
+
+"""
 from collections import defaultdict
 import itertools as it
+import logging
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import seaborn as sns
+import string
+import tqdm
+
+logging.getLogger().setLevel(logging.INFO)
+
+sns.set(style="whitegrid")
+
+
+def efficiency_plot(df):
+    plt.scatter(x=df['listener_effort'].values, y=df['speaker_effort'].values,
+                c=df['color'], edgecolors='w', alpha=0.7)
+    plt.title("System cross entropy")
+    plt.xlabel("Expected listener effort")
+    plt.ylabel("Expected speaker effort")
+    plt.xlim(-0.25, 2.)
+    plt.ylim(-0.25, 2.)
+    plt.savefig("efficiency.png")
 
 
 def all_meanings_available_filter(M):
@@ -48,7 +74,7 @@ def idxs2matrix(idxs, m, n):
     for row in range(m):
         curr_row = []
         for col in range(n):
-            if (row * m + col) in idxs:
+            if (row * n + col) in idxs:
                 curr_row.append(1.)
             else:
                 curr_row.append(0.)
@@ -84,7 +110,8 @@ def get_item_idx(item, arr1, arr2):
     try:
         idx = [i for i, x in enumerate(arr1) if x == item][0]
     except:
-        import pdb; pdb.set_trace();
+        import pdb;
+        pdb.set_trace();
     return arr2[idx]
 
 
@@ -100,6 +127,7 @@ class Semantics:
     """Literal semantics.
 
     """
+
     def __init__(self, mapper):
         self.mapper = mapper
 
@@ -113,6 +141,7 @@ class Language:
     """Language.
 
     """
+
     def __init__(self, utterances, meanings,
                  p_utterances, p_meanings, semantics):
         self.utterances = utterances
@@ -126,6 +155,7 @@ class Agent:
     """Interlocutor agent.
 
     """
+
     def __init__(self, language, alpha=1.):
         self.language = language
         self.alpha = alpha
@@ -153,12 +183,15 @@ class Agent:
         if listener_score == 0.:
             return 0.
         return \
-            np.exp(self.alpha * (np.log(listener_score) - self.cost(utterance)))
+            np.exp(
+                self.alpha * (np.log(listener_score) - self.cost(utterance)))
 
     def listener_score(self, utterance, meaning):
         def score_meaning(u, m):
             return int(self.language.semantics.delta(u, m)) * \
-                   get_meaning_prob(m, self.language.meanings, self.language.p_meanings)
+                   get_meaning_prob(m, self.language.meanings,
+                                    self.language.p_meanings)
+
         score = score_meaning(utterance, meaning)
         return score
 
@@ -185,51 +218,207 @@ class Agent:
 def system_efficiency(speaker, listener, language):
     """Cross entropy between speaker and listener using language.
 
-    \sum_m p(m)S(u|m)log[L(m|u)p(u)]
+    CE = \sum_m p(m)S(u|m)log[L(m|u)p(u)]
+
+    Parameters
+    ----------
+    speaker: Object
+        Agent instance.
+    listener: Object
+        Agent instance.
+    language: Object
+        Language instance.
+
+    Returns
+    -------
+    tuple
+        Tuple of CE, E[p(u)], E[L(m|u)]
 
     """
-    score = 0.
+    expected_speaker_effort = 0.
+    expected_listener_effort = 0.
     complete_support = list(it.product(language.meanings, language.utterances))
     for m, u in complete_support:
         p_m = get_meaning_prob(m, language.meanings, language.p_meanings)
-        p_s_u = speaker.p_speak(u, m)
-        p_l_m = listener.p_listen(u, m)
         p_u = get_utterance_prob(u, language.utterances, language.p_utterances)
-        part_a = p_m * p_s_u
-        if p_l_m == 0.:
-            part_b = 0.
-        else:
-            part_b = (np.log(p_l_m) + np.log(p_u))
-        curr_score = part_a * part_b
-        score += curr_score
-        # print(m, u, curr_score)
-    return -score
+        s_u_given_m = speaker.p_speak(u, m)
+        l_m_given_u = listener.p_listen(u, m)
+        p_joint_speaker = p_m * s_u_given_m
+        expected_speaker_effort += p_joint_speaker * -np.log(p_u)
+        expected_listener_effort += (p_joint_speaker * -np.log(l_m_given_u)) \
+            if l_m_given_u != 0. else 0.
+        # ce_score += part_a * -part_b * 3
+    ce_score = (expected_speaker_effort + expected_listener_effort)
+    return ce_score, expected_speaker_effort, expected_listener_effort
 
 
-if __name__ == '__main__':
-    utts = ['a', 'b', 'c']
-    meanings = [1, 2, 3]
-    p_utts = [0.1, 0.3, 0.6]
-    p_meanings = [0.1, 0.3, 0.6]
+def run_simulation(id, utterances, meanings, p_utterances, p_meanings,
+                   n_true):
+    """Run a simulation over language instantiations.
 
+    Parameters
+    ----------
+    id: int
+        Simulation id for logging.
+    utterances: array of str
+        Utterances strings.
+    meanings: array of int
+        Meanings.
+    p_utterances: array of float
+        Utterance probabilities.
+    p_meamings: array of float
+        Meaning probabilities.
+    n_true: int
+        Number of true mappings in semantics.
 
-    matrices = generate_all_boolean_matrices(3, 3, 3)
-    matrices = [(idxs, m) for idxs, m in matrices if all_meanings_available_filter(m)]
+    Returns
+    -------
+    pd.DataFrame
+        Results.
+
+    """
+    matrices = generate_all_boolean_matrices(len(utterances),
+                                             len(meanings),
+                                             n_true)
+    matrices = [(idxs, m) for idxs, m in matrices if
+                all_meanings_available_filter(m)]
     all_languages = []
     for idxs, m in matrices:
-        d = matrix2dict(m, utts, meanings)
+        d = matrix2dict(m, utterances, meanings)
         sems = Semantics(d)
-        language = Language(utts, meanings, p_utts, p_meanings, sems)
+        language = Language(utterances, meanings, p_utterances, p_meanings,
+                            sems)
         all_languages.append((idxs, language))
 
     d_results = []
     for idxs, language in all_languages:
         agent = Agent(language)
+        ce, kl, speaker_effort, listener_effort = \
+            system_efficiency(agent, agent, language)
         d_results.append({
+            "simulation_id": id,
             "idxs": idxs,
-            "score": system_efficiency(agent, agent, language)
+            "CE": ce,
+            "KL": kl,
+            "speaker_effort": speaker_effort,
+            "listener_effort": listener_effort
         })
-    print(sorted(d_results, key=lambda x: x['score']))
+    df = pd.DataFrame(d_results)
+    min_ce = df['CE'].min()
+    df['color'] = df['CE'].apply(lambda x: 'red' if x == min_ce else 'grey')
+    return df
+
+
+def run_context_simulation(id, contexts, utterances, meanings, p_utterances,
+                           n_true):
+    """Run a simulation over language instantiations with context.
+
+    Note that p_meanings is not expicitly passed because we defined
+
+    p(m|c) instead of just p(m)
+
+    \sum_c p(c) * \sum_{u,m}S(u|m)p(m|c)*log[L(m|u,c)p(u)p(c)]
+     = E_c[CE(S,L)]
+
+    Parameters
+    ----------
+    id: int
+        Simulation id for logging.
+    contexts: array of str
+        Contexts.
+    utterances: array of str
+        Utterances strings.
+    meanings: array of int
+        Meanings.
+    p_utterances: array of float
+        Utterance probabilities.
+    p_meamings: array of float
+        Meaning probabilities.
+    n_true: int
+        Number of true mappings in semantics.
+
+    Returns
+    -------
+    pd.DataFrame
+        Results.
+
+    """
+    matrices = generate_all_boolean_matrices(len(utterances),
+                                             len(meanings),
+                                             n_true)
+    matrices = [(idxs, m) for idxs, m in matrices if
+                all_meanings_available_filter(m)]
+    all_languages = []
+    for idxs, m in matrices:
+        d = matrix2dict(m, utterances, meanings)
+        sems = Semantics(d)
+        language = Language(utterances, meanings, p_utterances, p_meanings,
+                            sems)
+        all_languages.append((idxs, language))
+
+    d_results = []
+    for idxs, language in all_languages:
+        agent = Agent(language)
+        ce, kl, speaker_effort, listener_effort = \
+            system_efficiency(agent, agent, language)
+        d_results.append({
+            "simulation_id": id,
+            "idxs": idxs,
+            "CE": ce,
+            "KL": kl,
+            "speaker_effort": speaker_effort,
+            "listener_effort": listener_effort
+        })
+    df = pd.DataFrame(d_results)
+    min_ce = df['CE'].min()
+    df['color'] = df['CE'].apply(lambda x: 'red' if x == min_ce else 'grey')
+    return df
+
+
+if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--n-utterances', type=int, default=3,
+                        help='Number of items in language [Default: 3]')
+    parser.add_argument('--n-meanings', type=int, default=3,
+                        help='Number of objects to talk about [Default: 3]')
+    parser.add_argument('--n-sims', type=int, default=3,
+                        help='Number of simulations to run [Default: 3]')
+    parser.add_argument('--subplot-rows', type=int, default=1,
+                        help='Number of rows in facet plot [Default: 1]')
+    parser.add_argument('--subplot-cols', type=int, default=3,
+                        help='Number of cols in facet plot [Default: 3]')
+    args = parser.parse_args()
+    assert (args.subplot_rows * args.subplot_cols == args.n_sims)
+
+    utterances = list(string.letters)[:args.n_utterances]  # letters
+    meanings = list(range(args.n_meanings))  # ints
+
+    fig = plt.figure()
+    df_sims = pd.DataFrame()
+    for sim in tqdm.tqdm(range(args.n_sims)):
+        # p_utterances = np.random.dirichlet(
+        #     [1. for v in range(len(utterances))])
+        # p_meanings = np.random.dirichlet(
+        #     [1. for v in range(len(meanings))])
+        p_utterances = np.random.dirichlet([2**v for v in range(len(utterances))])
+        p_meanings = np.random.dirichlet([2**v for v in range(len(meanings))])
+        df = run_simulation(sim,
+                            utterances,
+                            meanings,
+                            p_utterances,
+                            p_meanings,
+                            len(meanings))
+        ax = fig.add_subplot(args.subplot_rows, args.subplot_cols, sim + 1)
+        # df_sims = pd.concat([df_sims, df])
+        efficiency_plot(df)
+    plt.show()
+    print(df.sort_values('CE'))
+    plt.title('title')
+    plt.tight_layout()
+    plt.savefig("efficiency.png")
+
 
 
     # M = np.array([[1, 1, 0],
